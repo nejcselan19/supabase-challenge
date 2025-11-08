@@ -111,36 +111,40 @@ alter table order_archive enable row level security;
 create policy "Profiles are manageable by their owner"
   on profiles
   for all
-  using (id = auth.uid())
-  with check (id = auth.uid());
+  to authenticated
+  using (id = (select auth.uid()))
+  with check (id = (select auth.uid()));
 
 -- 3) ITEMS
 -- Any authenticated user can CRUD items
 create policy "Authenticated users can CRUD items"
   on items
   for all
-  using (auth.uid() is not null)
-  with check (auth.uid() is not null);
+  to authenticated
+  using ((select auth.uid()) is not null)
+  with check ((select auth.uid()) is not null);
 
 -- 4) ORDERS
 -- Only the user whose profile_id = auth.uid() can see / modify them
 create policy "Orders are manageable by their owner"
   on orders
   for all
-  using (profile_id = auth.uid())
-  with check (profile_id = auth.uid());
+  to authenticated
+  using (profile_id = (select auth.uid()))
+  with check (profile_id = (select auth.uid()));
 
 -- 5) ORDER ITEMS
 -- Order items are only accessible if they belong to an order whose profile_id = auth.uid()
 create policy "Order items follow order ownership"
   on order_items
   for all
+  to authenticated
   using (
     exists (
       select 1
       from orders o
       where o.id = order_items.order_id
-        and o.profile_id = auth.uid()
+        and o.profile_id = (select auth.uid())
     )
   )
   with check (
@@ -148,7 +152,7 @@ create policy "Order items follow order ownership"
       select 1
       from orders o
       where o.id = order_items.order_id
-        and o.profile_id = auth.uid()
+        and o.profile_id = (select auth.uid())
     )
   );
 
@@ -157,12 +161,52 @@ create policy "Order items follow order ownership"
 create policy "Authenticated users can read item_history"
   on item_history
   for select
-  using (auth.uid() is not null);
+  to authenticated
+  using ((select auth.uid()) is not null);
 
 -- 7) ORDER ARCHIVE
 -- Only authenticated users can READ archive records (read-only)
 create policy "Authenticated users can read order_archive"
   on order_archive
   for select
-  using (auth.uid() is not null);
+  to authenticated
+  using ((select auth.uid()) is not null);
 
+
+-- =========================================================
+-- STEP 5: MY ORDERS VIEW
+-- Aggregates orders with their items in JSON array and relies on RLS via security_invoker
+-- =========================================================
+
+create view my_orders
+with (security_invoker = true) as
+select
+    o.id           as order_id,
+    o.profile_id   as profile_id,
+    o.recipient_name,
+    o.shipping_address,
+    o.created_at,
+    o.updated_at,
+    -- total value of the order
+    sum(oi.quantity * i.price) as order_total,
+    -- JSON array of order items with quantities and line totals
+    jsonb_agg(
+        jsonb_build_object(
+            'item_id',     i.id,
+            'item_name',   i.name,
+            'unit_price',  i.price,
+            'quantity',    oi.quantity,
+            'line_total',  oi.quantity * i.price
+        )
+        order by i.name
+    ) as items
+from orders o
+join order_items oi on oi.order_id = o.id
+join items i       on i.id = oi.item_id
+group by
+    o.id,
+    o.profile_id,
+    o.recipient_name,
+    o.shipping_address,
+    o.created_at,
+    o.updated_at;
