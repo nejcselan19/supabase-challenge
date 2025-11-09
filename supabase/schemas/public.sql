@@ -353,3 +353,24 @@ create trigger on_auth_user_created
 after insert on auth.users
 for each row
 execute function public.handle_new_auth_user();
+
+
+-- =========================================================
+-- STEP 7: Remote Procedure Call function get_other_orders_total, to use it inside edge function.
+-- Calculates the total value of all orders except the one passed in.
+-- Uses my_orders view, which already computes order_total from items.
+-- =========================================================
+
+create or replace function public.get_other_orders_total(exclude_order_id uuid)
+returns table (total numeric)
+language sql
+security definer
+set search_path = ''
+as $$
+  select coalesce(sum(order_total), 0)::numeric as total
+  from public.my_orders
+  where order_id <> exclude_order_id;
+$$;
+
+revoke all on function public.get_other_orders_total(uuid) from public;
+grant execute on function public.get_other_orders_total(uuid) to authenticated;
