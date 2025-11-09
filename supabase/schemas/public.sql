@@ -374,3 +374,60 @@ $$;
 
 revoke all on function public.get_other_orders_total(uuid) from public;
 grant execute on function public.get_other_orders_total(uuid) to authenticated;
+
+
+-- =========================================================
+-- STEP 8: CRON JOB - ORDER ARCHIVE & DELETE OLD ORDERS
+-- =========================================================
+
+create extension if not exists pg_cron with schema extensions;
+
+-- Function that:
+-- 1. computes total sum and counts orders older than 1 week
+-- 2. stores it in order_archive
+-- 3. deletes orders (cascade removes order_items)
+create or replace function public.archive_old_orders()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_cutoff       timestamptz := now() - interval '7 days';
+  v_orders_count integer;
+  v_total_sum    numeric(10, 2);
+begin
+  -- Aggregate over ALL orders older than cutoff timestamp
+  select
+    count(distinct o.id)::integer,
+    coalesce(sum(oi.quantity * i.price), 0)::numeric(10, 2)
+  into v_orders_count, v_total_sum
+  from public.orders o
+  left join public.order_items oi on oi.order_id = o.id
+  left join public.items       i  on i.id = oi.item_id
+  where o.created_at < v_cutoff;
+
+  -- Nothing to archive
+  if v_orders_count = 0 then
+    return;
+  end if;
+
+  -- store count and sum in order_archive
+  insert into public.order_archive (orders_count, total_sum)
+  values (v_orders_count, v_total_sum);
+
+  -- delete old orders (order_items are removed via ON DELETE CASCADE)
+  delete from public.orders
+  where created_at < v_cutoff;
+end;
+$$;
+
+-- Only cron / backend should execute this
+revoke all on function public.archive_old_orders() from public;
+
+-- Schedule the job via cron: run every day at 03:00. Later run in Studio SQL Editor to activate job.
+-- select cron.schedule(
+--   'archive_old_orders_daily',
+--   '0 3 * * *',
+--   $$select public.archive_old_orders();$$
+-- );

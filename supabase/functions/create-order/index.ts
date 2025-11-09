@@ -11,6 +11,14 @@ const SUPABASE_URL = envOrThrow("SUPABASE_URL");
 const SUPABASE_ANON_KEY = envOrThrow("SUPABASE_ANON_KEY");
 const SUPABASE_SERVICE_ROLE_KEY = envOrThrow("SUPABASE_SERVICE_ROLE_KEY");
 
+// CORS headers (used for OPTIONS + all JSON responses)
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
 type NewOrderItem = {
   item_id: string;
   quantity: number;
@@ -23,15 +31,11 @@ type NewOrderPayload = {
 };
 
 Deno.serve(async (req) => {
+  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response("ok", {
       status: 200,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers":
-          "authorization, x-client-info, apikey, content-type",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-      },
+      headers: corsHeaders,
     });
   }
 
@@ -40,7 +44,10 @@ Deno.serve(async (req) => {
       JSON.stringify({ error: "Method not allowed, use POST" }),
       {
         status: 405,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...corsHeaders,
+        },
       },
     );
   }
@@ -58,7 +65,10 @@ Deno.serve(async (req) => {
       }),
       {
         status: 401,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...corsHeaders,
+        },
       },
     );
   }
@@ -73,10 +83,16 @@ Deno.serve(async (req) => {
   // Verify token & get auth.uid()
   const { data: userData, error: userError } = await userClient.auth.getUser();
   if (userError || !userData?.user) {
-    return new Response(JSON.stringify({ error: "Invalid or expired token" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ error: "Invalid or expired token" }),
+      {
+        status: 401,
+        headers: {
+          "Content-Type": "application/json",
+          ...corsHeaders,
+        },
+      },
+    );
   }
   const authUid = userData.user.id;
 
@@ -87,7 +103,10 @@ Deno.serve(async (req) => {
   } catch {
     return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
       status: 400,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
     });
   }
 
@@ -100,7 +119,10 @@ Deno.serve(async (req) => {
       }),
       {
         status: 400,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...corsHeaders,
+        },
       },
     );
   }
@@ -110,7 +132,10 @@ Deno.serve(async (req) => {
       JSON.stringify({ error: "Order must contain at least one item" }),
       {
         status: 400,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...corsHeaders,
+        },
       },
     );
   }
@@ -135,7 +160,10 @@ Deno.serve(async (req) => {
     console.error("Error inserting order:", orderError);
     return new Response(JSON.stringify({ error: "Failed to insert order" }), {
       status: 500,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
     });
   }
 
@@ -156,7 +184,10 @@ Deno.serve(async (req) => {
       JSON.stringify({ error: "Failed to insert order items" }),
       {
         status: 500,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...corsHeaders,
+        },
       },
     );
   }
@@ -180,7 +211,10 @@ Deno.serve(async (req) => {
       }),
       {
         status: 500,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...corsHeaders,
+        },
       },
     );
   }
@@ -199,6 +233,9 @@ Deno.serve(async (req) => {
 
   return new Response(JSON.stringify(data), {
     status: 201,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...corsHeaders,
+    },
   });
 });
